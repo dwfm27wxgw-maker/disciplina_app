@@ -7,7 +7,6 @@ plugins {
 android {
     namespace = "com.example.disciplina_app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
 
     defaultConfig {
         applicationId = "com.example.disciplina_app"
@@ -20,28 +19,14 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-
-        // ✅ NECESARIO para flutter_local_notifications
         isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
         jvmTarget = "17"
     }
-
-    buildTypes {
-        release {
-            // Para que compile sin firmar en release (debug signing)
-            signingConfig = signingConfigs.getByName("debug")
-        }
-    }
 }
 
 dependencies {
-    // ✅ NECESARIO para desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-}
-
-flutter {
-    source = "../.."
 }

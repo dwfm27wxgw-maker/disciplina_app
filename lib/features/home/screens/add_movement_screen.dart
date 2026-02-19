@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/movement.dart';
-import '../../../core/notifications/notification_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/storage/local_store.dart';
 
 class AddMovementScreen extends StatefulWidget {
