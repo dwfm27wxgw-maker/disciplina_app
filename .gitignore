@@ -28,5 +28,10 @@ ios/Runner.xcworkspace/xcuserdata/
 ios/Runner.xcodeproj/xcuserdata/
 **/*.xcuserstate
 
-# --- Misc logs ---
+# --- Project backups / logs ---
+android_BROKEN_*/
+*_BROKEN_*/
+gradle_error.txt
+run_verbose.txt
+tools/run_android_verbose.txt
 *.log
