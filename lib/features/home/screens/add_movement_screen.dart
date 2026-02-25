@@ -1,128 +1,143 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/movement.dart';
-import '../../../core/services/notification_service.dart';
 import '../../../core/storage/local_store.dart';
 
 class AddMovementScreen extends StatefulWidget {
+  const AddMovementScreen({super.key, this.presetTicker, this.presetAmount});
+
   final String? presetTicker;
   final double? presetAmount;
-
-  const AddMovementScreen({
-    super.key,
-    this.presetTicker,
-    this.presetAmount,
-  });
 
   @override
   State<AddMovementScreen> createState() => _AddMovementScreenState();
 }
 
 class _AddMovementScreenState extends State<AddMovementScreen> {
-  final _ticker = TextEditingController();
-  final _amount = TextEditingController();
+  final _tickerCtrl = TextEditingController();
+  final _amountCtrl = TextEditingController();
   DateTime _date = DateTime.now();
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.presetTicker != null) _ticker.text = widget.presetTicker!;
-    if (widget.presetAmount != null) {
-      _amount.text = widget.presetAmount!.toStringAsFixed(2);
+    _tickerCtrl.text = (widget.presetTicker ?? '').toUpperCase().trim();
+    if (widget.presetAmount != null && widget.presetAmount! > 0) {
+      _amountCtrl.text = widget.presetAmount!.toStringAsFixed(2);
     }
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
-    _amount.dispose();
+    _tickerCtrl.dispose();
+    _amountCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      firstDate: DateTime(2020, 1, 1),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
       initialDate: _date,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 2),
     );
     if (picked != null) setState(() => _date = picked);
   }
 
   Future<void> _save() async {
-    final t = _ticker.text.trim().toUpperCase();
-    final a = double.tryParse(_amount.text.replaceAll(',', '.')) ?? 0.0;
+    final ticker = _tickerCtrl.text.toUpperCase().trim();
+    final amount = double.tryParse(_amountCtrl.text.replaceAll(',', '.').trim());
 
-    if (t.isEmpty || a <= 0) {
+    if (ticker.isEmpty || amount == null || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Completa ticker e importe válido.')),
+        const SnackBar(content: Text('Revisa ticker e importe')),
       );
       return;
     }
 
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    final m = Movement(
-      id: id,
-      ticker: t,
-      amount: a,
-      date: _date,
-    );
+    setState(() => _saving = true);
 
-    await LocalStore.saveMovement(m);
+    try {
+      final m = Movement(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        ticker: ticker,
+        amount: amount,
+        date: _date,
+      );
 
-    // ✅ Recalcula el coach mensual
-    await NotificationService.rescheduleNextMonthCoach();
+      await LocalStore.saveMovement(m);
 
-    if (!mounted) return;
-    Navigator.of(context).pop(true);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al guardar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Registrar compra')),
+      backgroundColor: const Color(0xFF0E1013),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0E1013),
+        elevation: 0,
+        title: const Text('Registrar compra'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
-              controller: _ticker,
-              decoration: const InputDecoration(labelText: 'Ticker (ej. IWLE)'),
+              controller: _tickerCtrl,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Ticker',
+                hintText: 'Ej: IWDA',
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             TextField(
-              controller: _amount,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Importe (€)'),
+              controller: _amountCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Importe (€)',
+                hintText: 'Ej: 50',
+              ),
             ),
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    'Fecha: ${_date.day.toString().padLeft(2, '0')}/'
-                    '${_date.month.toString().padLeft(2, '0')}/${_date.year}',
-                    style: theme.textTheme.bodyMedium,
+                    'Fecha: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
+                    style: TextStyle(color: Colors.white.withOpacity(0.85)),
                   ),
                 ),
-                TextButton.icon(
+                TextButton(
                   onPressed: _pickDate,
-                  icon: const Icon(Icons.calendar_month),
-                  label: const Text('Cambiar'),
+                  child: const Text('Cambiar'),
                 ),
               ],
             ),
             const Spacer(),
-            FilledButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.check),
-              label: const Text('Guardar'),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_saving ? 'Guardando…' : 'Guardar'),
+              ),
             ),
           ],
         ),
       ),
     );
   }
-}
+}s

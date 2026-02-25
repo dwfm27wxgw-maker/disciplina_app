@@ -1,186 +1,60 @@
-import 'dart:convert';
+    lib/features/home/screens/home_page.dart:403:25: Error: The method 'AddMovementScreen' isn't defined for the type '_HomePageState'.
+     - '_HomePageState' is from 'package:disciplina_app/features/home/screens/home_page.dart' ('lib/features/home/screens/home_page.dart').
+    Try correcting the name to the name of an existing method, or defining a method named 'AddMovementScreen'.
+            builder: (_) => AddMovementScreen(
+                            ^^^^^^^^^^^^^^^^^
+    lib/core/storage/local_store.dart:28:29: Error: Undefined name 'LocalStore'.
+        final monthDone = await LocalStore.getMonthDone(year: y, month: m);
+                                ^^^^^^^^^^
+    lib/core/storage/local_store.dart:101:23: Error: Undefined name 'LocalStore'.
+          final m = await LocalStore.getMovements();
+                          ^^^^^^^^^^
+    lib/core/storage/local_store.dart:110:20: Error: Undefined name 'LocalStore'.
+          return await LocalStore.getPlan();
+                       ^^^^^^^^^^
+    lib/features/coach/screens/monthly_digest_screen.dart:14:3: Error: 'MonthlyDigest' isn't a type.
+      MonthlyDigest? _digest;
+      ^^^^^^^^^^^^^
+    lib/features/coach/screens/monthly_digest_screen.dart:29:23: Error: The getter 'MonthlyDigestService' isn't defined for the type '_MonthlyDigestScreenState'.
+     - '_MonthlyDigestScreenState' is from 'package:disciplina_app/features/coach/screens/monthly_digest_screen.dart' ('lib/features/coach/screens/monthly_digest_screen.dart').
+    Try correcting the name to the name of an existing getter, or defining a getter or field named 'MonthlyDigestService'.
+          final d = await MonthlyDigestService.buildMonthlyDigest();
+                          ^^^^^^^^^^^^^^^^^^^^
+    lib/features/plan/screens/edit_plan_screen.dart:35:21: Error: The getter 'LocalStore' isn't defined for the type '_EditPlanScreenState'.
+     - '_EditPlanScreenState' is from 'package:disciplina_app/features/plan/screens/edit_plan_screen.dart' ('lib/features/plan/screens/edit_plan_screen.dart').
+    Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocalStore'.
+        final p = await LocalStore.getPlan();
+                        ^^^^^^^^^^
+    lib/features/plan/screens/edit_plan_screen.dart:86:11: Error: The getter 'LocalStore' isn't defined for the type '_EditPlanScreenState'.
+     - '_EditPlanScreenState' is from 'package:disciplina_app/features/plan/screens/edit_plan_screen.dart' ('lib/features/plan/screens/edit_plan_screen.dart').
+    Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocalStore'.
+        await LocalStore.savePlan(
+              ^^^^^^^^^^
+    lib/features/home/screens/add_movement_screen.dart:26:57: Error: Expected '{' before this.
+    jesusmoralesordas@MacBook-Pro-de-jesus disciplina_app % 
+                                                            ^...
+    lib/features/home/screens/add_movement_screen.dart:2:16: Error: Expected a function body, but got '^'.
+                  ^^^^^^^^^^
+                   ^
+    lib/features/home/screens/add_movement_screen.dart:2:16: Error: Expected a function body, but got '{'.
+                  ^^^^^^^^^^
+                   ^
+    lib/features/coach/services/monthly_digest_service.dart:75:13: Error: The getter 'LocalStore' isn't defined for the type '_AddMovementScreenState'.
+     - '_AddMovementScreenState' is from 'package:disciplina_app/features/coach/services/monthly_digest_service.dart' ('lib/features/coach/services/monthly_digest_service.dart').
+    Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocalStore'.
+          await LocalStore.saveMovement(m);
+                ^^^^^^^^^^
+    Target kernel_snapshot_program failed: Exception
+    Failed to package /Users/jesusmoralesordas/Dev/disciplina_app.
+    Command PhaseScriptExecution failed with a nonzero exit code
+    /Users/jesusmoralesordas/Dev/disciplina_app/ios/Pods/Pods.xcodeproj: warning: The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to 11.0, but the range of supported deployment target
+    versions is 12.0 to 26.2.99. (in target 'flutter_timezone-flutter_timezone_privacy' from project 'Pods')
+    /Users/jesusmoralesordas/Dev/disciplina_app/ios/Pods/Pods.xcodeproj: warning: The iOS Simulator deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to 11.0, but the range of supported deployment target
+    versions is 12.0 to 26.2.99. (in target 'flutter_local_notifications-flutter_local_notifications_privacy' from project 'Pods')
+    note: Run script build phase 'Run Script' will be run during every build because the option to run the script phase "Based on dependency analysis" is unchecked. (in target 'Runner' from project 'Runner')
+    note: Run script build phase 'Thin Binary' will be run during every build because the option to run the script phase "Based on dependency analysis" is unchecked. (in target 'Runner' from project 'Runner')
 
-import 'package:shared_preferences/shared_preferences.dart';
-
-import '../models/plan.dart';
-
-class LocalStore {
-  // Keys
-  static const String _kTickers = 'tickers_v1';
-  static const String _kMovements = 'movements_v1';
-  static const String _kPlan = 'plan_v1';
-
-  // -------------------------
-  // Tickers
-  // -------------------------
-  static Future<List<String>> getTickers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList(_kTickers) ?? <String>[];
-    return list.map((e) => e.toString()).toList();
-  }
-
-  static Future<void> saveTickers(List<String> tickers) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      _kTickers,
-      tickers
-          .map((e) => e.toUpperCase().trim())
-          .where((e) => e.isNotEmpty)
-          .toList(),
-    );
-  }
-
-  // -------------------------
-  // Movements (tolerante)
-  // Guardamos como List<String> donde cada item es JSON de un movimiento.
-  // Leemos también formatos antiguos si existieran.
-  // -------------------------
-  static Map<String, dynamic>? _toMap(dynamic m) {
-    if (m == null) return null;
-
-    if (m is Map<String, dynamic>) return m;
-    if (m is Map) {
-      return m.map((k, v) => MapEntry(k.toString(), v));
-    }
-
-    // intenta toJson()
-    try {
-      final j = (m as dynamic).toJson();
-      if (j is Map) {
-        return j.map((k, v) => MapEntry(k.toString(), v));
-      }
-    } catch (_) {}
-
-    return null;
-  }
-
-  static Future<List<dynamic>> getMovements() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    // Formato principal: List<String> (cada string es JSON)
-    final list = prefs.getStringList(_kMovements);
-    if (list != null) {
-      final out = <dynamic>[];
-      for (final s in list) {
-        try {
-          final decoded = jsonDecode(s);
-          if (decoded is Map) {
-            out.add(decoded.map((k, v) => MapEntry(k.toString(), v)));
-          }
-        } catch (_) {}
-      }
-      return out;
-    }
-
-    // Compatibilidad: si alguien guardó un JSON string con lista
-    final raw = prefs.getString(_kMovements);
-    if (raw != null && raw.trim().isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          return decoded.map((e) => _toMap(e) ?? e).toList();
-        }
-      } catch (_) {}
-    }
-
-    return <dynamic>[];
-  }
-
-  static Future<void> saveMovementsBulk(List<dynamic> movements) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final jsonList = <String>[];
-    for (final m in movements) {
-      final map = _toMap(m);
-      if (map == null) continue;
-
-      // Asegura campos mínimos
-      map['ticker'] = (map['ticker'] ?? 'UNKNOWN')
-          .toString()
-          .toUpperCase()
-          .trim();
-      map['amount'] = map['amount'] ?? 0;
-      map['date'] = map['date'] ?? DateTime.now().toIso8601String();
-      map['id'] = map['id'] ?? '${DateTime.now().microsecondsSinceEpoch}';
-
-      jsonList.add(jsonEncode(map));
-    }
-
-    await prefs.setStringList(_kMovements, jsonList);
-  }
-
-  static Future<void> saveMovement(dynamic movement) async {
-    final list = await getMovements();
-    final map = _toMap(movement);
-    if (map == null) return;
-
-    // Insert al principio
-    list.insert(0, map);
-    await saveMovementsBulk(list);
-  }
-
-  // Alias por si en otras pantallas lo usabas con otro nombre
-  static Future<void> addMovement(dynamic movement) => saveMovement(movement);
-
-  // -------------------------
-  // Plan
-  // -------------------------
-  static Future<Plan?> getPlan() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kPlan);
-    if (raw == null || raw.trim().isEmpty) return null;
-
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) {
-        final map = decoded.map((k, v) => MapEntry(k.toString(), v));
-        // Intentamos Plan.fromJson(map)
-        try {
-          // ignore: invalid_use_of_visible_for_testing_member, avoid_dynamic_calls
-          return Plan.fromJson(map);
-        } catch (_) {
-          // Si tu Plan no tiene fromJson, no rompemos
-          return null;
-        }
-      }
-    } catch (_) {}
-
-    return null;
-  }
-
-  static Future<void> savePlan(Plan plan) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    try {
-      // ignore: avoid_dynamic_calls
-      final m = (plan as dynamic).toJson();
-      await prefs.setString(_kPlan, jsonEncode(m));
-      return;
-    } catch (_) {
-      // fallback: intenta guardar algo mínimo
-      await prefs.setString(_kPlan, jsonEncode({}));
-    }
-  }
-
-  // -----------------------------
-  // COACH: Mes completado (persistente)
-  // -----------------------------
-  static String _monthDoneKey(int year, int month) =>
-      'month_done_${year}_${month.toString().padLeft(2, '0')}';
-
-  static Future<bool> getMonthDone({int? year, int? month}) async {
-    final now = DateTime.now();
-    final y = year ?? now.year;
-    final m = month ?? now.month;
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_monthDoneKey(y, m)) ?? false;
-  }
-
-  static Future<void> setMonthDone(bool done, {int? year, int? month}) async {
-    final now = DateTime.now();
-    final y = year ?? now.year;
-    final m = month ?? now.month;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_monthDoneKey(y, m), done);
-  }
-}
+Could not build the application for the simulator.
+Error launching application on iPhone 16e.
+jesusmoralesordas@MacBook-Pro-de-jesus disciplina_app % ls ~/Dev     
+disciplina_app	disciplina_test

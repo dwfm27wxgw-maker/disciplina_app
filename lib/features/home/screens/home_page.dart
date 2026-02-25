@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../core/models/market_quote.dart';
 import '../../../core/models/plan.dart';
 import '../../../core/storage/local_store.dart';
-import '../../../core/services/notification_service.dart'; // ✅ RUTA CORRECTA
+import '../../../core/services/notification_service.dart';
 import '../../coach/screens/monthly_digest_screen.dart';
 
 import '../../movements/screens/import_revolut_csv_screen.dart';
@@ -30,6 +30,9 @@ class _HomePageState extends State<HomePage> {
   List<String> _tickers = [];
   List<MarketQuote> _quotes = [];
   List<dynamic> _movements = [];
+
+  // ✅ NUEVO: Mes completado persistente (LocalStore)
+  bool _monthDone = false;
 
   // Anim “premium” (cascada). Re-seed para reanimar al recargar.
   int _animSeed = 0;
@@ -70,6 +73,27 @@ class _HomePageState extends State<HomePage> {
         if (m is List) movements = List<dynamic>.from(m);
       } catch (_) {}
 
+      // ✅ MonthDone (persistente)
+      bool monthDone = false;
+      try {
+        final now = DateTime.now();
+        monthDone = await LocalStore.getMonthDone(year: now.year, month: now.month);
+      } catch (_) {}
+
+      // ✅ Auto-marcar mes completado si llegas al objetivo
+      // (sin necesidad de tocar el coach)
+      try {
+        final invested = _investedThisMonthFrom(movements);
+        final target = _monthlyTargetFrom(plan);
+        if (target > 0 && invested >= target - 0.0001) {
+          if (!monthDone) {
+            final now = DateTime.now();
+            await LocalStore.setMonthDone(true, year: now.year, month: now.month);
+            monthDone = true;
+          }
+        }
+      } catch (_) {}
+
       // ✅ Quotes (si falla, seguimos con lista vacía)
       List<MarketQuote> quotes = [];
       try {
@@ -84,6 +108,7 @@ class _HomePageState extends State<HomePage> {
         _plan = plan;
         _movements = movements;
         _quotes = quotes;
+        _monthDone = monthDone;
         _loading = false;
       });
     } catch (e) {
@@ -91,6 +116,33 @@ class _HomePageState extends State<HomePage> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  // ✅ NUEVO: toggle manual de mes completado (persistente)
+  Future<void> _toggleMonthDone() async {
+    final now = DateTime.now();
+    final newVal = !_monthDone;
+
+    try {
+      await LocalStore.setMonthDone(newVal, year: now.year, month: now.month);
+      if (!mounted) return;
+
+      setState(() {
+        _monthDone = newVal;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(newVal ? 'Mes marcado como completado ✅' : 'Mes marcado como en curso'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al guardar estado del mes: $e')),
+      );
     }
   }
 
@@ -177,9 +229,9 @@ class _HomePageState extends State<HomePage> {
   // -----------------------------
   // Cálculos cartera
   // -----------------------------
-  double _monthlyTarget() {
+  double _monthlyTargetFrom(Plan? plan) {
     try {
-      final p = _plan;
+      final p = plan;
       if (p != null) {
         // ignore: avoid_dynamic_calls
         final v = (p as dynamic).monthlyContribution;
@@ -190,10 +242,12 @@ class _HomePageState extends State<HomePage> {
     return 50.0;
   }
 
-  double _investedThisMonth() {
+  double _monthlyTarget() => _monthlyTargetFrom(_plan);
+
+  double _investedThisMonthFrom(List<dynamic> movements) {
     final now = DateTime.now();
     double sum = 0;
-    for (final m in _movements) {
+    for (final m in movements) {
       final date = _dt(_get(m, 'date'));
       if (_isSameMonth(date, now)) {
         sum += _d(_get(m, 'amount'), 0);
@@ -201,6 +255,8 @@ class _HomePageState extends State<HomePage> {
     }
     return sum;
   }
+
+  double _investedThisMonth() => _investedThisMonthFrom(_movements);
 
   Map<String, double> _actualByTickerAllTime() {
     final map = <String, double>{};
@@ -294,11 +350,17 @@ class _HomePageState extends State<HomePage> {
     final remaining = (target - invested).clamp(0.0, 1e9);
     final recs = _computeBuyThisMonth(top: 2);
 
-    final monthDone = remaining <= 0.0001;
-
-    if (monthDone) {
-      return '✅ Mes completado. Has invertido ${_fmtMoney(invested)} este mes.\n'
+    // ✅ CLAVE: si está marcado como completado, manda calma
+    if (_monthDone) {
+      return '✅ Mes completado (guardado). Has invertido ${_fmtMoney(invested)} este mes.\n'
           'Mantén el plan y prepárate para el próximo mes.';
+    }
+
+    final monthReached = remaining <= 0.0001;
+
+    if (monthReached) {
+      return '🎯 Objetivo del mes alcanzado (${_fmtMoney(invested)}).\n'
+          'Recomendación: marca “Mes completado” para que Disciplina no te insista este mes.';
     }
 
     final best = recs.isNotEmpty ? recs.first : null;
@@ -313,6 +375,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   bool _monthCompleted() {
+    if (_monthDone) return true;
     final remaining = (_monthlyTarget() - _investedThisMonth()).clamp(0.0, 1e9);
     return remaining <= 0.0001;
   }
@@ -334,8 +397,7 @@ class _HomePageState extends State<HomePage> {
     await _reloadAll();
   }
 
-  Future<void> _openAddMovement(
-      {String? presetTicker, double? presetAmount}) async {
+  Future<void> _openAddMovement({String? presetTicker, double? presetAmount}) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AddMovementScreen(
@@ -362,8 +424,7 @@ class _HomePageState extends State<HomePage> {
     final ms = _animBaseDelayMs * i;
     final seed = _animSeed;
     return FutureBuilder<void>(
-      future:
-          Future<void>.delayed(Duration(milliseconds: ms + (seed % 7) * 10)),
+      future: Future<void>.delayed(Duration(milliseconds: ms + (seed % 7) * 10)),
       builder: (context, snap) {
         final show = snap.connectionState == ConnectionState.done;
         return AnimatedOpacity(
@@ -480,7 +541,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   // -----------------------------
-  // UI blocks que te faltaban
+  // UI blocks
   // -----------------------------
   Widget _buildSkeleton() {
     Widget box({double h = 14, double w = double.infinity}) => Container(
@@ -517,22 +578,28 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(height: 12),
         _card(
-            child: Column(children: [
-          box(h: 14),
-          const SizedBox(height: 8),
-          box(h: 14),
-          const SizedBox(height: 8),
-          box(h: 14)
-        ])),
+          child: Column(
+            children: [
+              box(h: 14),
+              const SizedBox(height: 8),
+              box(h: 14),
+              const SizedBox(height: 8),
+              box(h: 14),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
         _card(
-            child: Column(children: [
-          box(h: 14),
-          const SizedBox(height: 8),
-          box(h: 14),
-          const SizedBox(height: 8),
-          box(h: 14)
-        ])),
+          child: Column(
+            children: [
+              box(h: 14),
+              const SizedBox(height: 8),
+              box(h: 14),
+              const SizedBox(height: 8),
+              box(h: 14),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -577,7 +644,16 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const Spacer(),
-              _chip(done ? 'Completado' : 'En curso', good: done),
+              // ✅ Chip tap para marcar/desmarcar persistente
+              InkWell(
+                onTap: _toggleMonthDone,
+                borderRadius: BorderRadius.circular(999),
+                child: _chip(
+                  _monthDone ? 'Completado' : 'En curso',
+                  good: _monthDone,
+                  warn: !_monthDone && done,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -606,8 +682,7 @@ class _HomePageState extends State<HomePage> {
                     final recs = _computeBuyThisMonth(top: 1);
                     final best = recs.isNotEmpty ? recs.first : null;
                     final invested = _investedThisMonth();
-                    final remaining =
-                        (_monthlyTarget() - invested).clamp(0.0, 1e9);
+                    final remaining = (_monthlyTarget() - invested).clamp(0.0, 1e9);
 
                     _openAddMovement(
                       presetTicker: best?.ticker,
@@ -658,7 +733,7 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 8),
           _kv('Restante', _fmtMoney(remaining)),
           const SizedBox(height: 12),
-          _bar(value01: pct, good: remaining <= 0.0001),
+          _bar(value01: pct, good: remaining <= 0.0001 || _monthDone),
         ],
       ),
     );
@@ -670,7 +745,6 @@ class _HomePageState extends State<HomePage> {
     final total = actual.values.fold<double>(0, (a, b) => a + b);
     final safeTotal = total <= 0 ? 1.0 : total;
 
-    // Estado simple
     double maxAbsDelta = 0;
     for (final t in weights.keys) {
       final wT = weights[t] ?? 0.0;
@@ -750,6 +824,8 @@ class _HomePageState extends State<HomePage> {
 
     final recs = _computeBuyThisMonth(top: 3);
 
+    final done = _monthDone || remaining <= 0.0001;
+
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -765,18 +841,15 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const Spacer(),
-              _chip(
-                  remaining <= 0.0001
-                      ? 'Mes completado'
-                      : 'Restante ${_fmtMoney(remaining)}',
-                  good: remaining <= 0.0001),
+              _chip(done ? 'Mes completado' : 'Restante ${_fmtMoney(remaining)}',
+                  good: done),
             ],
           ),
           const SizedBox(height: 10),
-          if (remaining <= 0.0001)
+          if (done)
             Text(
-              '✅ Ya has completado tu presupuesto del mes.\n'
-              'Disciplina: mantiene el plan, sin perseguir el precio.',
+              '✅ Mes completado.\n'
+              'Disciplina: mantén el plan, sin perseguir el precio.',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.78),
                 height: 1.25,
@@ -806,8 +879,7 @@ class _HomePageState extends State<HomePage> {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.06),
                         borderRadius: BorderRadius.circular(12),
-                        border:
-                            Border.all(color: Colors.white.withOpacity(0.08)),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
                       ),
                       child: Text(
                         r.ticker,
@@ -886,8 +958,7 @@ class _HomePageState extends State<HomePage> {
             ..._quotes.map((q) {
               final ch = q.changePercent;
               final good = ch >= 0;
-              final c =
-                  good ? const Color(0xFF34C759) : const Color(0xFFFF3B30);
+              final c = good ? const Color(0xFF34C759) : const Color(0xFFFF3B30);
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
@@ -895,8 +966,7 @@ class _HomePageState extends State<HomePage> {
                   onTap: () => _copyToClipboard('${q.ticker} ${q.price}'),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.04),
                       borderRadius: BorderRadius.circular(12),
@@ -921,8 +991,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                         const SizedBox(width: 10),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: c.withOpacity(0.14),
                             borderRadius: BorderRadius.circular(999),
@@ -995,12 +1064,10 @@ class _HomePageState extends State<HomePage> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: InkWell(
-                  onTap: () =>
-                      _copyToClipboard('$t ${_fmtMoney(a)} ${_fmtDate(d)}'),
+                  onTap: () => _copyToClipboard('$t ${_fmtMoney(a)} ${_fmtDate(d)}'),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.04),
                       borderRadius: BorderRadius.circular(12),
@@ -1074,7 +1141,7 @@ class _HomePageState extends State<HomePage> {
         elevation: 0,
         titleSpacing: 14,
         title: GestureDetector(
-          onLongPress: _testCoachNotificationNow, // ✅ oculto
+          onLongPress: _testCoachNotificationNow,
           child: Row(
             children: [
               Text(
@@ -1087,8 +1154,7 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(width: 10),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(999),
@@ -1097,9 +1163,10 @@ class _HomePageState extends State<HomePage> {
                 child: Text(
                   'Hoy',
                   style: TextStyle(
-                      color: Colors.white.withOpacity(0.75),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12),
+                    color: Colors.white.withOpacity(0.75),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],
@@ -1155,10 +1222,11 @@ class _HomePageState extends State<HomePage> {
 // Model para recomendaciones
 // -----------------------------
 class _BuyRow {
-  _BuyRow(
-      {required this.ticker,
-      required this.deficitWeight,
-      required this.suggested});
+  _BuyRow({
+    required this.ticker,
+    required this.deficitWeight,
+    required this.suggested,
+  });
 
   final String ticker;
   final double deficitWeight;
