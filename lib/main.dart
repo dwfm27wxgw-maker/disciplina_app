@@ -8,6 +8,7 @@ Future<void> main() async {
 
   try {
     await NotificationService.init();
+    await NotificationService.showMonthlyCoachNow();
   } catch (e) {
     // Nunca romper arranque
     // ignore: avoid_print

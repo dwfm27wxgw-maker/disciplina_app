@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/services/notification_service.dart';
+import '../services/monthly_digest_service.dart';
 
 class MonthlyDigestScreen extends StatefulWidget {
   const MonthlyDigestScreen({super.key});
@@ -10,129 +11,186 @@ class MonthlyDigestScreen extends StatefulWidget {
 }
 
 class _MonthlyDigestScreenState extends State<MonthlyDigestScreen> {
-  bool _monthDone = false;
-  String _status = 'Modo seguro: Android compila.';
+  MonthlyDigest? _digest;
+  bool _loading = true;
+  bool _scheduling = false;
+  DateTime? _nextCoachAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    setState(() => _loading = true);
+
+    try {
+      final d = await MonthlyDigestService.buildMonthlyDigest();
+      final nextDt = await NotificationService.getNextScheduledCoachAt();
+
+      if (!mounted) return;
+      setState(() {
+        _digest = d;
+        _nextCoachAt = nextDt;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _digest = null;
+        _loading = false;
+      });
+    }
+  }
+
+  String _fmt(DateTime? dt) {
+    if (dt == null) return '(sin programar aún)';
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final headline =
-        _monthDone ? 'Mes completado ✅' : 'Coach mensual · Disciplina';
-
-    final message = _monthDone
-        ? 'Perfecto. Este mes ya está hecho. Mantén la disciplina y el próximo mes volvemos a ajustar.'
-        : 'Este mes: prioriza el ETF con más desviación de tu objetivo.\n\n'
-            '⚠️ Nota: ahora mismo esta pantalla es “modo seguro” para que Android compile.\n'
-            'En el siguiente paso conectamos el cálculo real desde tus movimientos y tu Plan.';
+    final digest = _digest;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Coach mensual'),
         actions: [
           IconButton(
-            tooltip: _monthDone
-                ? 'Marcar como NO completado'
-                : 'Marcar como completado',
-            onPressed: () => setState(() => _monthDone = !_monthDone),
-            icon: Icon(_monthDone ? Icons.undo : Icons.check_circle_outline),
+            tooltip: 'Recargar',
+            onPressed: _loadAll,
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _card(
+                  title: digest?.headline ?? 'Disciplina',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        digest?.actionLine ?? 'Acción: revisa tu plan del mes.',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        digest?.fullBody ??
+                            'No hay mensaje disponible. Registra compras para que el coach sea más preciso.',
+                        style: const TextStyle(fontSize: 14, height: 1.35),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _card(
+                  title: 'Notificación programada',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Próxima notificación: ${_fmt(_nextCoachAt)}',
+                        style: const TextStyle(fontSize: 14, height: 1.35),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                await NotificationService.showMonthlyCoachNow(
+                                  title: 'Coach mensual',
+                                  body:
+                                      'Disciplina: notificación de prueba (Ahora).',
+                                );
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Notificación enviada.'),
+                                  ),
+                                );
+                              },
+                              child: const Text('Probar ahora'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _scheduling
+                                  ? null
+                                  : () async {
+                                      setState(() => _scheduling = true);
+
+                                      final dt = await NotificationService
+                                          .scheduleNextMonthCoachAndReturnDate(
+                                        hour: 9,
+                                        minute: 0,
+                                      );
+
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _scheduling = false;
+                                        if (dt != null) _nextCoachAt = dt;
+                                      });
+
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        SnackBar(
+                                          content: Text(dt == null
+                                              ? 'No se pudo reprogramar.'
+                                              : 'Programada: ${_fmt(dt)}'),
+                                        ),
+                                      );
+                                    },
+                              child: Text(
+                                _scheduling
+                                    ? 'Reprogramando…'
+                                    : 'Reprogramar próximo mes',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Se programa el 1 del mes siguiente a las 09:00 (hora local).',
+                        style: TextStyle(fontSize: 12, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _card({required String title, required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0x14FFFFFF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x22FFFFFF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            headline,
-            style: theme.textTheme.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Text(
-                message,
-                style: theme.textTheme.bodyLarge,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _status,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // BOTONES
-          FilledButton.icon(
-            onPressed: () async {
-              try {
-                await NotificationService.showTestNow();
-                if (!mounted) return;
-                setState(() {
-                  _status =
-                      '✅ Notificación enviada. Si NO suena: revisa canal/ajustes de notificación en OPPO.';
-                });
-              } catch (e) {
-                if (!mounted) return;
-                setState(() => _status = '❌ Error enviando notificación: $e');
-              }
-            },
-            icon: const Icon(Icons.notifications_active),
-            label: const Text('Probar sonido ahora'),
+            title,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
-          FilledButton.tonalIcon(
-            onPressed: () async {
-              try {
-                await NotificationService.rescheduleNextMonthCoach();
-                if (!mounted) return;
-                setState(() =>
-                    _status = '✅ Programado próximo mes (día 1 a las 10:00).');
-              } catch (e) {
-                if (!mounted) return;
-                setState(() => _status = '❌ Error programando: $e');
-              }
-            },
-            icon: const Icon(Icons.schedule),
-            label: const Text('Programar próximo mes'),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: () async {
-              try {
-                await NotificationService.cancelMonthlyCoach();
-                if (!mounted) return;
-                setState(() => _status = '🧹 Coach mensual cancelado.');
-              } catch (e) {
-                if (!mounted) return;
-                setState(() => _status = '❌ Error cancelando: $e');
-              }
-            },
-            icon: const Icon(Icons.cancel),
-            label: const Text('Cancelar notificación'),
-          ),
-
-          const SizedBox(height: 18),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back),
-            label: const Text('Volver'),
-          ),
+          child,
         ],
       ),
     );

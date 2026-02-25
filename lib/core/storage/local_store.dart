@@ -161,4 +161,26 @@ class LocalStore {
       await prefs.setString(_kPlan, jsonEncode({}));
     }
   }
+
+  // -----------------------------
+  // COACH: Mes completado (persistente)
+  // -----------------------------
+  static String _monthDoneKey(int year, int month) =>
+      'month_done_${year}_${month.toString().padLeft(2, '0')}';
+
+  static Future<bool> getMonthDone({int? year, int? month}) async {
+    final now = DateTime.now();
+    final y = year ?? now.year;
+    final m = month ?? now.month;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_monthDoneKey(y, m)) ?? false;
+  }
+
+  static Future<void> setMonthDone(bool done, {int? year, int? month}) async {
+    final now = DateTime.now();
+    final y = year ?? now.year;
+    final m = month ?? now.month;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_monthDoneKey(y, m), done);
+  }
 }
