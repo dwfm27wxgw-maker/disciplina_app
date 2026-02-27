@@ -140,4 +140,5 @@ class _AddMovementScreenState extends State<AddMovementScreen> {
       ),
     );
   }
-}s
+
+}

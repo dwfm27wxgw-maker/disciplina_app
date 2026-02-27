@@ -24,6 +24,7 @@ class NotificationService {
 
   static Future<void> rescheduleNextMonthCoach() async {
     await _ensureInit();
+    // MVP: scheduling real lo hacemos después con timezone
   }
 
   static Future<bool> _ensureInit() async {
@@ -42,7 +43,8 @@ class NotificationService {
         iOS: iosInit,
       );
 
-      await _plugin.initialize(initSettings);
+      // ✅ API nueva: settings: ...
+      await _plugin.initialize(settings: initSettings);
 
       if (Platform.isAndroid) {
         final androidImpl = _plugin.resolvePlatformSpecificImplementation<
@@ -64,14 +66,8 @@ class NotificationService {
     }
   }
 
-  static Future<void> showMonthlyCoachNow({
-    String title = 'Disciplina',
-    String body = 'Coach mensual listo.',
-  }) async {
-    final ok = await _ensureInit();
-    if (!ok) return;
-
-    final details = NotificationDetails(
+  static NotificationDetails _details() {
+    return NotificationDetails(
       android: AndroidNotificationDetails(
         _channel.id,
         _channel.name,
@@ -81,9 +77,22 @@ class NotificationService {
       ),
       iOS: const DarwinNotificationDetails(),
     );
+  }
 
-    // ✅ Usamos la firma más común (posicional) para móviles.
-    await _plugin.show(_monthlyCoachId, title, body, details);
+  static Future<void> showMonthlyCoachNow({
+    String title = 'Disciplina',
+    String body = 'Coach mensual listo.',
+  }) async {
+    final ok = await _ensureInit();
+    if (!ok) return;
+
+    // ✅ API nueva: id/title/body/notificationDetails nombrados
+    await _plugin.show(
+      id: _monthlyCoachId,
+      title: title,
+      body: body,
+      notificationDetails: _details(),
+    );
   }
 
   static Future<void> scheduleNextMonthCoach({
@@ -99,6 +108,8 @@ class NotificationService {
   static Future<void> cancelMonthlyCoach() async {
     final ok = await _ensureInit();
     if (!ok) return;
-    await _plugin.cancel(_monthlyCoachId);
+
+    // ✅ API nueva: cancel(id: ...)
+    await _plugin.cancel(id: _monthlyCoachId);
   }
 }

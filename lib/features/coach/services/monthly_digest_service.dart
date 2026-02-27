@@ -1,143 +1,121 @@
-import 'package:flutter/material.dart';
-
 import '../../../core/models/movement.dart';
+import '../../../core/models/plan.dart';
 import '../../../core/storage/local_store.dart';
 
-class AddMovementScreen extends StatefulWidget {
-  const AddMovementScreen({super.key, this.presetTicker, this.presetAmount});
+class MonthlyDigest {
+  final String headline;
+  final String actionLine;
+  final String fullBody;
 
-  final String? presetTicker;
-  final double? presetAmount;
+  const MonthlyDigest({
+    required this.headline,
+    required this.actionLine,
+    required this.fullBody,
+  });
 
-  @override
-  State<AddMovementScreen> createState() => _AddMovementScreenState();
+  // compat con pantallas antiguas
+  String get title => headline;
 }
 
-class _AddMovementScreenState extends State<AddMovementScreen> {
-  final _tickerCtrl = TextEditingController();
-  final _amountCtrl = TextEditingController();
-  DateTime _date = DateTime.now();
-  bool _saving = false;
+class MonthlyDigestService {
+  static Future<MonthlyDigest> buildMonthlyDigest({DateTime? now}) async {
+    final n = now ?? DateTime.now();
+    final year = n.year;
+    final month = n.month;
 
-  @override
-  void initState() {
-    super.initState();
-    _tickerCtrl.text = (widget.presetTicker ?? '').toUpperCase().trim();
-    if (widget.presetAmount != null && widget.presetAmount! > 0) {
-      _amountCtrl.text = widget.presetAmount!.toStringAsFixed(2);
-    }
-  }
+    final plan = await LocalStore.getPlan();
+    final movements = await LocalStore.getMovements();
+    final monthMovs = movements.where((m) => m.date.year == year && m.date.month == month).toList();
 
-  @override
-  void dispose() {
-    _tickerCtrl.dispose();
-    _amountCtrl.dispose();
-    super.dispose();
-  }
+    final invested = monthMovs.fold<double>(0.0, (s, m) => s + m.amount);
 
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime(now.year - 5),
-      lastDate: DateTime(now.year + 2),
-    );
-    if (picked != null) setState(() => _date = picked);
-  }
+    final monthlyTarget = plan?.monthlyContribution ?? 50.0;
+    final remaining = (monthlyTarget - invested);
+    final remainingSafe = remaining > 0 ? remaining : 0.0;
 
-  Future<void> _save() async {
-    final ticker = _tickerCtrl.text.toUpperCase().trim();
-    final amount = double.tryParse(_amountCtrl.text.replaceAll(',', '.').trim());
+    // Pesos objetivo (si no hay plan: defaults)
+    final weights = (plan?.targetWeights.isNotEmpty ?? false)
+        ? plan!.targetWeights
+        : <String, double>{'IWLE': 0.60, 'EUNU': 0.30, 'IS3N': 0.10};
 
-    if (ticker.isEmpty || amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Revisa ticker e importe')),
-      );
-      return;
+    // Actual por ticker (según compras del mes)
+    final byTicker = <String, double>{};
+    for (final m in monthMovs) {
+      byTicker[m.ticker] = (byTicker[m.ticker] ?? 0) + m.amount;
     }
 
-    setState(() => _saving = true);
-
-    try {
-      final m = Movement(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        ticker: ticker,
-        amount: amount,
-        date: _date,
+    // Si ya está completado el mes, mensaje calmado
+    if (remainingSafe <= 0.01) {
+      return MonthlyDigest(
+        headline: 'Mes completado ✅',
+        actionLine: 'Este mes ya has invertido ${invested.toStringAsFixed(0)}€.',
+        fullBody:
+            'Perfecto. Ya has cumplido tu objetivo mensual (${monthlyTarget.toStringAsFixed(0)}€).\n'
+            'Si quieres, revisa el Plan o simplemente mantén el rumbo.',
       );
-
-      await LocalStore.saveMovement(m);
-
-      if (!mounted) return;
-      Navigator.of(context).pop(true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al guardar: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _saving = false);
     }
-  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0E1013),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0E1013),
-        elevation: 0,
-        title: const Text('Registrar compra'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _tickerCtrl,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Ticker',
-                hintText: 'Ej: IWDA',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _amountCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Importe (€)',
-                hintText: 'Ej: 50',
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Fecha: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
-                    style: TextStyle(color: Colors.white.withOpacity(0.85)),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _pickDate,
-                  child: const Text('Cambiar'),
-                ),
-              ],
-            ),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _saving ? null : _save,
-                child: Text(_saving ? 'Guardando…' : 'Guardar'),
-              ),
-            ),
-          ],
-        ),
-      ),
+    // Recomendación: repartir el “remaining” según desviación vs objetivo
+    // Objetivo de gasto por ticker este mes = monthlyTarget * weight
+    // Si ya has gastado menos que eso, tiene prioridad.
+    final priorities = <_TickerPriority>[];
+    weights.forEach((ticker, w) {
+      final targetEuro = monthlyTarget * w;
+      final actualEuro = byTicker[ticker] ?? 0.0;
+      final deficit = targetEuro - actualEuro; // positivo => falta
+      priorities.add(_TickerPriority(ticker, w, targetEuro, actualEuro, deficit));
+    });
+
+    // Orden por mayor déficit relativo
+    priorities.sort((a, b) => b.deficit.compareTo(a.deficit));
+
+    // Asignación simple: top 3, proporcional a déficit positivo; si todos <=0, proporcional a weight
+    final posSum = priorities.where((p) => p.deficit > 0).fold<double>(0.0, (s, p) => s + p.deficit);
+    final alloc = <String, double>{};
+
+    for (final p in priorities.take(3)) {
+      final portion = (posSum > 0 && p.deficit > 0) ? (p.deficit / posSum) : p.weight;
+      alloc[p.ticker] = remainingSafe * portion;
+    }
+
+    // normaliza por si weights no suman 1 en top3
+    final allocSum = alloc.values.fold<double>(0.0, (s, v) => s + v);
+    if (allocSum > 0) {
+      alloc.updateAll((k, v) => (v / allocSum) * remainingSafe);
+    }
+
+    final top = alloc.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final first = top.isNotEmpty ? top.first : null;
+
+    final headline = first == null
+        ? 'Compra sugerida'
+        : 'Prioridad: ${first.key}';
+
+    final action = first == null
+        ? 'Te quedan ${remainingSafe.toStringAsFixed(0)}€ este mes.'
+        : 'Compra ~${first.value.toStringAsFixed(0)}€ en ${first.key}.';
+
+    final lines = top.map((e) => '• ${e.key}: ${e.value.toStringAsFixed(0)}€').join('\n');
+
+    return MonthlyDigest(
+      headline: headline,
+      actionLine: 'Te quedan ${remainingSafe.toStringAsFixed(0)}€ para completar el mes.',
+      fullBody:
+          'Objetivo mensual: ${monthlyTarget.toStringAsFixed(0)}€\n'
+          'Invertido este mes: ${invested.toStringAsFixed(0)}€\n'
+          'Restante: ${remainingSafe.toStringAsFixed(0)}€\n\n'
+          'Reparto recomendado:\n$lines\n\n'
+          'Nota: esto se basa en tu Plan (pesos objetivo) y tus compras del mes. No depende de precios en tiempo real.',
     );
   }
+}
+
+class _TickerPriority {
+  final String ticker;
+  final double weight;
+  final double targetEuro;
+  final double actualEuro;
+  final double deficit;
+
+  _TickerPriority(this.ticker, this.weight, this.targetEuro, this.actualEuro, this.deficit);
 }
